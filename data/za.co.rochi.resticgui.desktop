@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Restic Backup Manager
+Comment=Manage restic repositories, scheduled backups, and snapshots
+Exec=restic-gui
+Icon=drive-harddisk
+Terminal=false
+Categories=System;Utility;

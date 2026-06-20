@@ -16,7 +16,7 @@ repositories, scheduling backups via cron, and browsing/restoring snapshots.
 
 ## Build
 
-On Arch (matches your homelab setup):
+On Arch :
 
 ```bash
 sudo pacman -S vala gtk4 libadwaita meson ninja json-glib restic

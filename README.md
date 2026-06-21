@@ -2,7 +2,7 @@
 
 A GTK4 + libadwaita desktop app (written in Vala) for managing [restic](https://restic.net/) repositories, scheduling backups, and browsing/restoring snapshots — without ever touching restic's CLI directly.
 
-> Repository: **https://github.com/Rochi787/Restic-GUI**
+> Repository: **[https://github.com/Rochi787/Restic-GUI](https://github.com/Rochi787/Restic-GUI)**
 
 ## Table of Contents
 
@@ -24,14 +24,19 @@ A GTK4 + libadwaita desktop app (written in Vala) for managing [restic](https://
   - **cron** — written into a clearly marked, idempotent block in your user crontab; everything else in your crontab is left untouched.
   - **systemd user timers** — a `.service`/`.timer` pair per job under `~/.config/systemd/user/`.
   - **Windows Task Scheduler** — a scheduled task per job under `\ResticGui\`, running a generated PowerShell script.
-  
   Switching backends in the dropdown tears down the old backend's entries before syncing the new one, so jobs don't end up scheduled twice.
 - **Snapshots** — pick a repo, browse its snapshots, restore to a folder you choose, or forget an individual snapshot.
 - **Export as script** — turn any job into a standalone `.sh` (Linux/macOS) or `.ps1` (Windows) script with credentials embedded, for use outside the app.
 
 ## Screenshots
 
-_Coming soon._
+![Screenshot-1](./images/Screenshot-1.png)
+![Screenshot-2](./images/Screenshot-2.png)
+![Screenshot-3](./images/Screenshot-3.png)
+![Screenshot-4](./images/Screenshot-4.png)
+![Screenshot-5](./images/Screenshot-5.png)
+![Screenshot-6](./images/Screenshot-6.png)
+![Screenshot-7](./images/Screenshot-7.png)
 
 ## Install
 

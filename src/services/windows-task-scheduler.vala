@@ -28,6 +28,7 @@ namespace ResticGui {
         private string script_dir;
         private string log_dir;
         private string manifest_path;
+        private SecretManager secret_manager = new SecretManager ();
 
         public WindowsTaskScheduler () {
             var state_dir = Path.build_filename (Environment.get_user_state_dir (), "restic-gui");
@@ -56,10 +57,10 @@ namespace ResticGui {
             return Path.build_filename (log_dir, @"$(job.id).log");
         }
 
-        private void write_script (BackupJob job, Repository repo) throws WinTaskError {
+        private void write_script (BackupJob job, Repository repo, string password) throws WinTaskError {
             var path = script_path_for (job);
             try {
-                FileUtils.set_contents (path, job.build_script_windows (repo, log_path_for (job)));
+                FileUtils.set_contents (path, job.build_script_windows (repo, password, log_path_for (job)));
             } catch (Error e) {
                 throw new WinTaskError.WRITE_FAILED (@"Failed to write script for \"$(job.name)\": $(e.message)");
             }
@@ -152,16 +153,33 @@ namespace ResticGui {
          * Regenerates all managed scripts + scheduled tasks from the
          * given jobs, and removes tasks for jobs that are gone or
          * disabled (per the manifest from the last sync).
+         *
+         * Each enabled job's repo password is fetched from the system
+         * keyring via SecretManager rather than the in-memory
+         * Repository.password field (which is empty for repos freshly
+         * loaded from repos.json). Jobs whose repo has no password in
+         * the keyring are skipped — no script/task is written for them
+         * — and their names are returned so the caller can warn the
+         * user, instead of silently writing a task with an empty
+         * RESTIC_PASSWORD.
          */
-        public void sync (GenericArray<BackupJob> jobs, RepoStore repo_store) throws WinTaskError {
+        public async string[] sync (GenericArray<BackupJob> jobs, RepoStore repo_store) throws WinTaskError {
             var wanted = new GenericArray<string> ();
+            var skipped = new GenericArray<string> ();
 
             foreach (var job in jobs) {
                 if (!job.enabled) continue;
                 var repo = repo_store.find_by_id (job.repo_id);
                 if (repo == null) continue;
 
-                write_script (job, repo);
+                string? password = yield secret_manager.lookup_password (repo.id);
+                if (password == null) {
+                    warning ("No keyring password found for repo \"%s\" — skipping scheduled task for job \"%s\"", repo.name, job.name);
+                    skipped.add (job.name);
+                    continue;
+                }
+
+                write_script (job, repo, password);
                 create_or_update_task (job);
                 wanted.add (task_name (job));
             }
@@ -175,6 +193,7 @@ namespace ResticGui {
             }
 
             save_manifest (wanted);
+            return skipped.data;
         }
 
         /** Removes every restic-gui-managed task. Used when switching away from Task Scheduler. */

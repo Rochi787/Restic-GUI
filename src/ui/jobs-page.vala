@@ -232,21 +232,25 @@ namespace ResticGui {
             dialog.present (window_ref);
         }
 
-        private void sync_current_backend () throws Error {
+        /**
+         * Runs sync for whichever scheduler backend is currently active.
+         * Returns the names of any enabled jobs that were skipped because
+         * their repo's password couldn't be found in the system keyring
+         * (rather than silently writing an empty RESTIC_PASSWORD for
+         * them) — callers should surface these to the user.
+         */
+        private async string[] sync_current_backend () throws Error {
             switch (app_ref.scheduler_prefs.backend) {
                 case SchedulerBackend.SYSTEMD:
-                    app_ref.systemd_manager.sync (app_ref.job_store.jobs, app_ref.repo_store);
-                    break;
+                    return yield app_ref.systemd_manager.sync (app_ref.job_store.jobs, app_ref.repo_store);
                 case SchedulerBackend.WINDOWS_TASK:
-                    app_ref.windows_task_scheduler.sync (app_ref.job_store.jobs, app_ref.repo_store);
-                    break;
+                    return yield app_ref.windows_task_scheduler.sync (app_ref.job_store.jobs, app_ref.repo_store);
                 default:
-                    app_ref.cron_manager.sync (app_ref.job_store.jobs, app_ref.repo_store);
-                    break;
+                    return yield app_ref.cron_manager.sync (app_ref.job_store.jobs, app_ref.repo_store);
             }
         }
 
-        private void teardown_backend (SchedulerBackend backend) throws Error {
+        private async void teardown_backend (SchedulerBackend backend) throws Error {
             switch (backend) {
                 case SchedulerBackend.SYSTEMD:
                     app_ref.systemd_manager.teardown_all ();
@@ -255,23 +259,39 @@ namespace ResticGui {
                     app_ref.windows_task_scheduler.teardown_all ();
                     break;
                 default:
-                    app_ref.cron_manager.sync (new GenericArray<BackupJob> (), app_ref.repo_store);
+                    yield app_ref.cron_manager.sync (new GenericArray<BackupJob> (), app_ref.repo_store);
                     break;
             }
         }
 
+        private string skipped_suffix (string[] skipped) {
+            if (skipped.length == 0) return "";
+            return @" — but $(skipped.length) job(s) skipped (no password in keyring — reopen in Edit Repository): $(string.joinv (", ", skipped))";
+        }
+
         private void on_sync_clicked () {
+            on_sync_clicked_async.begin ();
+        }
+
+        private async void on_sync_clicked_async () {
             try {
-                sync_current_backend ();
-                window_ref.show_toast (@"$(app_ref.scheduler_prefs.backend.label ()) synced ✓");
+                var skipped = yield sync_current_backend ();
+                window_ref.show_toast (@"$(app_ref.scheduler_prefs.backend.label ()) synced ✓$(skipped_suffix (skipped))");
             } catch (Error e) {
                 window_ref.show_toast (@"Sync failed: $(e.message)");
             }
         }
 
         private void do_sync_quietly () {
+            do_sync_quietly_async.begin ();
+        }
+
+        private async void do_sync_quietly_async () {
             try {
-                sync_current_backend ();
+                var skipped = yield sync_current_backend ();
+                if (skipped.length > 0) {
+                    window_ref.show_toast (@"Sync$(skipped_suffix (skipped))");
+                }
             } catch (Error e) {
                 window_ref.show_toast (@"Sync failed: $(e.message)");
             }
@@ -287,16 +307,24 @@ namespace ResticGui {
             app_ref.scheduler_prefs.backend = new_backend;
             app_ref.scheduler_prefs.save ();
 
+            on_scheduler_changed_async.begin (old_backend, new_backend);
+        }
+
+        private async void on_scheduler_changed_async (SchedulerBackend old_backend, SchedulerBackend new_backend) {
             // Tear down the old backend's managed entries first, so jobs
             // don't end up scheduled twice while both are still wired up.
             try {
-                teardown_backend (old_backend);
+                yield teardown_backend (old_backend);
             } catch (Error e) {
                 window_ref.show_toast (@"Couldn't fully clear old schedule: $(e.message)");
             }
 
-            do_sync_quietly ();
-            window_ref.show_toast (@"Switched scheduler to $(new_backend.label ()) and synced ✓");
+            try {
+                var skipped = yield sync_current_backend ();
+                window_ref.show_toast (@"Switched scheduler to $(new_backend.label ()) and synced ✓$(skipped_suffix (skipped))");
+            } catch (Error e) {
+                window_ref.show_toast (@"Sync failed: $(e.message)");
+            }
         }
 
         private void on_export_clicked (BackupJob job) {
@@ -305,10 +333,26 @@ namespace ResticGui {
                 window_ref.show_toast ("Job's repository is missing — can't export.");
                 return;
             }
+            export_async.begin (job, repo);
+        }
+
+        /**
+         * Fetches the repo's real password from the system keyring
+         * before building the export script, rather than trusting
+         * Repository.password — which is empty unless the repo's edit
+         * dialog happens to have been opened earlier in this session.
+         */
+        private async void export_async (BackupJob job, Repository repo) {
+            var secret_manager = new SecretManager ();
+            string? password = yield secret_manager.lookup_password (repo.id);
+            if (password == null) {
+                window_ref.show_toast (@"No password found in the keyring for \"$(repo.name)\" — open Edit Repository and re-enter/save it before exporting.");
+                return;
+            }
 
             bool on_windows = Path.DIR_SEPARATOR == '\\';
             string ext = on_windows ? "ps1" : "sh";
-            string contents = on_windows ? job.build_script_windows (repo) : job.build_script (repo);
+            string contents = on_windows ? job.build_script_windows (repo, password) : job.build_script (repo, password);
 
             var dialog = new Gtk.FileDialog ();
             dialog.title = "Save backup script";

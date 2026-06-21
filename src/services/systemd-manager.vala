@@ -28,6 +28,7 @@ namespace ResticGui {
         private string unit_dir;
         private string script_dir;
         private string log_dir;
+        private SecretManager secret_manager = new SecretManager ();
 
         public SystemdManager () {
             unit_dir = Path.build_filename (Environment.get_user_config_dir (), "systemd", "user");
@@ -59,10 +60,10 @@ namespace ResticGui {
             return Path.build_filename (log_dir, @"$(job.id).log");
         }
 
-        private void write_script (BackupJob job, Repository repo) throws SystemdError {
+        private void write_script (BackupJob job, Repository repo, string password) throws SystemdError {
             var path = script_path_for (job);
             try {
-                FileUtils.set_contents (path, job.build_script (repo));
+                FileUtils.set_contents (path, job.build_script (repo, password));
                 FileUtils.chmod (path, 0700);
             } catch (Error e) {
                 throw new SystemdError.WRITE_FAILED (@"Failed to write script for \"$(job.name)\": $(e.message)");
@@ -154,23 +155,40 @@ namespace ResticGui {
          * given jobs, removes units for jobs that are gone or disabled,
          * reloads the systemd user daemon, and enables+starts timers for
          * every enabled job.
+         *
+         * Each enabled job's repo password is fetched from the system
+         * keyring via SecretManager rather than the in-memory
+         * Repository.password field (which is empty for repos freshly
+         * loaded from repos.json). Jobs whose repo has no password in
+         * the keyring are skipped — no script/unit is written or enabled
+         * for them — and their names are returned so the caller can warn
+         * the user, instead of silently writing a unit with an empty
+         * RESTIC_PASSWORD.
          */
-        public void sync (GenericArray<BackupJob> jobs, RepoStore repo_store) throws SystemdError {
+        public async string[] sync (GenericArray<BackupJob> jobs, RepoStore repo_store) throws SystemdError {
             var wanted_units = new GenericArray<string> ();
+            var skipped = new GenericArray<string> ();
 
             foreach (var job in jobs) {
                 if (!job.enabled) continue;
                 var repo = repo_store.find_by_id (job.repo_id);
                 if (repo == null) continue;
 
-                write_script (job, repo);
+                string? password = yield secret_manager.lookup_password (repo.id);
+                if (password == null) {
+                    warning ("No keyring password found for repo \"%s\" — skipping systemd unit for job \"%s\"", repo.name, job.name);
+                    skipped.add (job.name);
+                    continue;
+                }
+
+                write_script (job, repo, password);
                 write_service_unit (job);
                 write_timer_unit (job);
                 wanted_units.add (@"$(unit_name (job)).service");
                 wanted_units.add (@"$(unit_name (job)).timer");
             }
 
-            // Remove stale units (disabled/deleted jobs) before reload.
+            // Remove stale units (disabled/deleted/skipped jobs) before reload.
             foreach (var existing in existing_managed_units ()) {
                 bool still_wanted = false;
                 foreach (var w in wanted_units) {
@@ -190,8 +208,17 @@ namespace ResticGui {
                 if (!job.enabled) continue;
                 var repo = repo_store.find_by_id (job.repo_id);
                 if (repo == null) continue;
+
+                bool was_skipped = false;
+                foreach (var s in skipped) {
+                    if (s == job.name) { was_skipped = true; break; }
+                }
+                if (was_skipped) continue;
+
                 run_systemctl ({ "enable", "--now", @"$(unit_name (job)).timer" });
             }
+
+            return skipped.data;
         }
 
         /** Removes every restic-gui-managed unit and disables its timer. Used when switching away from systemd. */

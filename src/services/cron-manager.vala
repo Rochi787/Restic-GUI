@@ -18,6 +18,7 @@ namespace ResticGui {
 
         private string env_dir;
         private string log_dir;
+        private SecretManager secret_manager = new SecretManager ();
 
         public CronManager () {
             var state_dir = Path.build_filename (Environment.get_user_state_dir (), "restic-gui");
@@ -36,10 +37,10 @@ namespace ResticGui {
         }
 
         /** Writes the per-repo env file (RESTIC_REPOSITORY, password, backend creds). */
-        private void write_env_file (Repository repo) {
+        private void write_env_file (Repository repo, string password) {
             var sb = new StringBuilder ();
             sb.append_printf ("RESTIC_REPOSITORY=%s\n", shell_escape (repo.location));
-            sb.append_printf ("RESTIC_PASSWORD=%s\n", shell_escape (repo.password));
+            sb.append_printf ("RESTIC_PASSWORD=%s\n", shell_escape (password));
             repo.env_vars.foreach ((k, v) => {
                 sb.append_printf ("%s=%s\n", k, shell_escape (v));
             });
@@ -87,8 +88,16 @@ namespace ResticGui {
         /**
          * Regenerates the managed block from the given jobs/repos and
          * installs it into the user's crontab, preserving everything else.
+         *
+         * For each enabled job, the repo's password is fetched from the
+         * system keyring via SecretManager rather than trusting the
+         * in-memory Repository.password field (which is always empty for
+         * repos freshly loaded from repos.json). Jobs whose repo has no
+         * password in the keyring are skipped entirely — rather than
+         * writing an empty RESTIC_PASSWORD — and their names are
+         * returned so the caller can warn the user.
          */
-        public void sync (GenericArray<BackupJob> jobs, RepoStore repo_store) throws CronError {
+        public async string[] sync (GenericArray<BackupJob> jobs, RepoStore repo_store) throws CronError {
             var existing = read_current_crontab ();
 
             // Strip out any existing managed block.
@@ -111,12 +120,21 @@ namespace ResticGui {
             sb.append (BEGIN_MARKER);
             sb.append ("\n");
 
+            var skipped = new GenericArray<string> ();
+
             foreach (var job in jobs) {
                 if (!job.enabled) continue;
                 var repo = repo_store.find_by_id (job.repo_id);
                 if (repo == null) continue;
 
-                write_env_file (repo);
+                string? password = yield secret_manager.lookup_password (repo.id);
+                if (password == null) {
+                    warning ("No keyring password found for repo \"%s\" — skipping cron entry for job \"%s\"", repo.name, job.name);
+                    skipped.add (job.name);
+                    continue;
+                }
+
+                write_env_file (repo, password);
                 var cmd = job.build_command (env_file_for (repo), log_file_for (job));
                 sb.append_printf ("%s %s\n", job.cron_schedule, cmd);
             }
@@ -125,6 +143,7 @@ namespace ResticGui {
             sb.append ("\n");
 
             write_crontab (sb.str);
+            return skipped.data;
         }
 
         public string log_path_for (BackupJob job) {

@@ -1,38 +1,59 @@
 # Restic GUI
 
-A GTK4 + libadwaita desktop app (written in Vala) for managing restic
-repositories, scheduling backups via cron, and browsing/restoring snapshots.
+A GTK4 + libadwaita desktop app (written in Vala) for managing [restic](https://restic.net/) repositories, scheduling backups, and browsing/restoring snapshots — without ever touching restic's CLI directly.
+
+> Repository: **https://github.com/Rochi787/Restic-GUI**
+
+## Table of Contents
+
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Install](#install)
+- [Where things are stored](#where-things-are-stored)
+- [Security model](#security-model)
+- [Architecture](#architecture)
+- [Known issues / Roadmap](#known-issues--roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
-- **Repositories**: add local/network, SFTP, S3, B2, or rest-server backed
-  restic repos. Init, check connectivity, edit, delete.
-- **Backup Jobs**: pick source paths, excludes, a cron schedule (presets or
-  custom expression), and a retention policy (`restic forget --prune`).
-  "Sync to crontab" writes everything into a clearly marked block in your
-  user crontab — it never touches your other cron entries.
-- **Snapshots**: pick a repo, browse its snapshots, restore to a folder you
-  choose, or forget an individual snapshot.
+- **Repositories** — add local/network, SFTP, S3, B2, or rest-server backed restic repos. Initialize, check connectivity, edit, delete.
+- **Backup Jobs** — pick source paths, excludes, a cron-style schedule (presets or a custom cron expression), and a retention policy (`restic forget --prune`).
+- **Multiple scheduler backends** — sync jobs to whichever scheduler is actually available on the host, picked at runtime from a dropdown:
+  - **cron** — written into a clearly marked, idempotent block in your user crontab; everything else in your crontab is left untouched.
+  - **systemd user timers** — a `.service`/`.timer` pair per job under `~/.config/systemd/user/`.
+  - **Windows Task Scheduler** — a scheduled task per job under `\ResticGui\`, running a generated PowerShell script.
+  
+  Switching backends in the dropdown tears down the old backend's entries before syncing the new one, so jobs don't end up scheduled twice.
+- **Snapshots** — pick a repo, browse its snapshots, restore to a folder you choose, or forget an individual snapshot.
+- **Export as script** — turn any job into a standalone `.sh` (Linux/macOS) or `.ps1` (Windows) script with credentials embedded, for use outside the app.
 
-## Build
+## Screenshots
 
-On Arch :
+_Coming soon._
+
+## Install
+
+### Arch
 
 ```bash
-sudo pacman -S vala gtk4 libadwaita meson ninja json-glib restic
+sudo pacman -S vala gtk4 libadwaita meson ninja json-glib libsecret restic
 meson setup build
 ninja -C build
 ./build/restic-gui
 ```
 
-On Debian/Ubuntu-based systems:
+### Debian / Ubuntu
 
 ```bash
-sudo apt install valac libgtk-4-dev libadwaita-1-dev libjson-glib-dev meson ninja-build restic
+sudo apt install valac libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsecret-1-dev meson ninja-build restic
 meson setup build
 ninja -C build
 ./build/restic-gui
 ```
+
+> `libsecret` is required — the app stores repository passwords in your system keyring (GNOME Keyring, KWallet, etc.), not in a config file. Skipping it will fail at `meson setup`.
 
 To install system-wide (adds it to your app launcher):
 
@@ -42,66 +63,65 @@ sudo meson install -C build
 
 ## Where things are stored
 
-- `~/.config/restic-gui/repos.json` — repo definitions, **including
-  passwords/credentials**. File is chmod'd to `0600`, but it's plaintext —
-  see "Security notes" below if you want better-than-this.
-- `~/.config/restic-gui/jobs.json` — job definitions.
-- `~/.local/state/restic-gui/env/<repo-id>.env` — per-repo env files sourced
-  by cron jobs at runtime (also `0600`).
-- `~/.local/state/restic-gui/logs/<job-id>.log` — backup output logs.
-- Crontab: a block delimited by
-  `# >>> restic-gui managed jobs (do not edit by hand) >>>` /
-  `# <<< restic-gui managed jobs <<<`. Anything outside that block in your
-  existing crontab is preserved exactly as-is.
+- `~/.config/restic-gui/repos.json` — repo definitions (name, backend, location, backend-specific env vars). **Passwords are not stored here** — see [Security model](#security-model).
+- `~/.config/restic-gui/jobs.json` — backup job definitions.
+- `~/.config/restic-gui/scheduler.json` — which scheduler backend (cron / systemd / Windows Task Scheduler) the Jobs page's "Sync" button targets.
+- `~/.local/state/restic-gui/env/<repo-id>.env` — per-repo env file sourced by cron jobs at runtime (`0600`).
+- `~/.local/state/restic-gui/scripts/<job-id>.sh` — standalone backup scripts used by systemd units.
+- `~/.local/state/restic-gui/win-scripts/<job-id>.ps1` — standalone PowerShell scripts used by Windows Task Scheduler.
+- `~/.local/state/restic-gui/logs/<job-id>.log` — backup output logs, for whichever backend is active.
+- **Crontab**: a block delimited by `# >>> restic-gui managed jobs (do not edit by hand) >>>` / `# <<< restic-gui managed jobs <<<`. Anything outside that block in your existing crontab is preserved exactly as-is.
+- **systemd user units**: `~/.config/systemd/user/restic-gui-<job-id>.{service,timer}`.
+- **Windows Task Scheduler**: tasks under `\ResticGui\<job-id>`, tracked via a small manifest at `~/.local/state/restic-gui/win-tasks.json` (used to clean up tasks for removed/disabled jobs, since `schtasks` has no reliable "list by prefix" query).
 
-## Security notes (read this before pointing it at real data)
+## Security model
 
-This first pass stores repo passwords and cloud credentials in plaintext
-JSON/env files, just gated by Unix file permissions (`0600`, owner-only).
-That's fine for a single-user homelab box you trust, but if you want it
-hardened further, the natural next step is to swap `Repository.password`
-storage for **libsecret** (GNOME Keyring) and have the cron job shell out
-to `secret-tool lookup` instead of sourcing a flat env file. I didn't wire
-that up yet — happy to add it if you want.
+Repository passwords and backend credentials live in your **system keyring** via `libsecret` (`secret-manager.vala`), looked up by `repo_id`. They are intentionally excluded from `repos.json`.
 
-## Known rough edges / what's stubbed vs. real
+> **Known gap:** the keyring lookup is wired up for in-app actions (Run now, Restore, Check, Init — see `ResticRunner.build_envp()`), but the scheduler sync paths (`CronManager.sync()`, `SystemdManager.sync()`, `WindowsTaskScheduler.sync()`) currently use the in-memory `Repository.password` field directly instead of fetching it from the keyring first. Since repos loaded from `repos.json` start with an empty password, **a freshly started app that hits "Sync" without re-opening each repo's edit dialog will write an empty `RESTIC_PASSWORD` into cron/systemd/Task Scheduler entries.** This is being tracked as the top-priority fix — see [Known issues](#known-issues--roadmap).
 
-- `restic ls` (browsing files inside a snapshot before restore) has a
-  runner method (`list_snapshot_files`) but no UI yet — currently restore
-  always restores the whole snapshot to a chosen folder.
-- The Repos/Jobs page list-refresh rebuilds the whole `Adw.PreferencesGroup`
-  each time rather than diffing rows — fine at homelab scale (a handful of
-  repos/jobs), but not optimized for hundreds.
-- No drag-and-drop reordering of jobs.
-- `EntryRow` password fields don't have the "show/hide" eye icon wired up
-  (GTK's `PasswordEntryRow` would be a nicer fit — easy follow-up).
-- I haven't been able to compile this in my sandbox (no GTK4/Vala toolchain
-  available there — only registry-mirror network access), so there may be
-  a small API mismatch or two against your installed GTK4/libadwaita
-  version once you build it for real. Most likely candidates: exact
-  `Adw.Dialog`/`Adw.AlertDialog` constructor signatures and `Adw.SpinRow`
-  availability — these shifted around libadwaita 1.4–1.6. If `meson setup`
-  complains about a missing symbol, tell me the exact error and I'll patch
-  it.
+Exported scripts (`.sh` / `.ps1`) and per-repo env files contain the repository password in plaintext on disk, gated only by file permissions (`0600`/`0700`). Treat them accordingly.
 
 ## Architecture
 
 ```
 src/
-  main.vala                 entry point
-  application.vala          Adw.Application, owns stores/services
+  main.vala                      entry point
+  application.vala               Adw.Application, owns stores/services
   models/
-    repository.vala         Repository + BackendType
-    backup-job.vala         BackupJob, builds the cron command line
-    snapshot.vala           parsed `restic snapshots --json` entry
+    repository.vala              Repository + BackendType
+    backup-job.vala              BackupJob; builds cron commands, bash + PowerShell scripts
+    snapshot.vala                parsed `restic snapshots --json` entry
   services/
-    restic-runner.vala      async wrapper around the restic CLI
-    repo-store.vala         repos.json persistence
-    job-store.vala          jobs.json persistence
-    cron-manager.vala       safe managed-block crontab read/write
+    restic-runner.vala           async wrapper around the restic CLI
+    repo-store.vala              repos.json persistence
+    job-store.vala               jobs.json persistence
+    cron-manager.vala            safe managed-block crontab read/write
+    systemd-manager.vala         systemd user timer/service generation + sync
+    windows-task-scheduler.vala  schtasks.exe task generation + sync
+    scheduler-prefs.vala         which scheduler backend is active
+    secret-manager.vala          libsecret-backed credential storage
   ui/
-    window.vala              Adw.NavigationSplitView shell
+    window.vala                  Adw.NavigationSplitView shell
     repos-page.vala / repo-edit-dialog.vala
     jobs-page.vala / job-edit-dialog.vala
     snapshots-page.vala
 ```
+
+## Known issues / Roadmap
+
+- **Scheduler sync doesn't pull passwords from the keyring** (see [Security model](#security-model)) — needs `CronManager`/`SystemdManager`/`WindowsTaskScheduler` `.sync()` to fetch each repo's password via `SecretManager` before writing env files/scripts.
+- `restic ls` (browsing files inside a snapshot before restore) has a runner method (`list_snapshot_files`) but no UI yet — restore always restores the whole snapshot to a chosen folder.
+- The Repos/Jobs page list-refresh rebuilds the whole `Adw.PreferencesGroup` each time rather than diffing rows — fine at homelab scale, not optimized for hundreds of entries.
+- No drag-and-drop reordering of jobs.
+- `EntryRow` password fields don't have the show/hide eye icon wired up (`Gtk.PasswordEntryRow` would be a nicer fit).
+- `RepoEditDialog` doesn't clear stale S3/B2 env vars when switching a repo's backend type away and back.
+- Cron → systemd / Windows Task Scheduler conversion is best-effort and rejects anything beyond the patterns this app's own presets (and similarly simple custom expressions) produce — see the comments in `systemd-manager.vala` / `windows-task-scheduler.vala` for exactly what's supported.
+
+## Contributing
+
+Issues and PRs are welcome at [github.com/Rochi787/Restic-GUI](https://github.com/Rochi787/Restic-GUI).
+
+## License
+
+_Add your chosen license here (e.g. MIT, GPL-3.0) and include a `LICENSE` file at the repo root — GitHub will pick it up automatically and show it in the sidebar._

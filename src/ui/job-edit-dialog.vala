@@ -87,7 +87,9 @@ namespace ResticGui {
                 names.add (repo_store.repos[i].name);
                 if (repo_store.repos[i].id == job.repo_id) selected_index = i;
             }
-            repo_row.model = new Gtk.StringList (names.data);
+            string[] name_arr = new string[names.length];
+            for (int i = 0; i < names.length; i++) name_arr[i] = names[i];
+            repo_row.model = new Gtk.StringList (name_arr);
             repo_row.selected = selected_index;
             basics.add (repo_row);
             box.append (basics);

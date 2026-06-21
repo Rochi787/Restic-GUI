@@ -55,7 +55,7 @@ namespace ResticGui {
         }
 
         private static string shell_escape (string s) {
-            return s; // values are written unquoted into a sourced env file; assume no embedded newlines
+            return "'" + s.replace ("'", "'\\''") + "'";
         }
 
         private string read_current_crontab () {

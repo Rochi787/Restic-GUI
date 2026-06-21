@@ -72,7 +72,9 @@ namespace ResticGui {
             }
 
             repo_picker.sensitive = true;
-            repo_picker.model = new Gtk.StringList (names.data);
+            string[] name_arr = new string[names.length];
+            for (int i = 0; i < names.length; i++) name_arr[i] = names[i];
+            repo_picker.model = new Gtk.StringList (name_arr);
             if (repo_picker.selected == Gtk.INVALID_LIST_POSITION || repo_picker.selected >= names.length) {
                 repo_picker.selected = 0;
             } else {
@@ -162,11 +164,10 @@ namespace ResticGui {
                     string target = folder.get_path ();
                     window_ref.show_toast (@"Restoring $(snap.short_id) to $(target)…");
                     restore_async.begin (repo, snap, target);
+                } catch (Gtk.DialogError.DISMISSED e) {
+                    // User closed/cancelled the folder picker — nothing to do.
                 } catch (Error e) {
-                    // user cancelled or error — ignore cancellation, toast on real errors
-                    if (!(e is Gtk.DialogError.DISMISSED)) {
-                        window_ref.show_toast (@"Restore failed: $(e.message)");
-                    }
+                    window_ref.show_toast (@"Restore failed: $(e.message)");
                 }
             });
         }

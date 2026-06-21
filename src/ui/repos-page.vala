@@ -140,6 +140,10 @@ namespace ResticGui {
             dialog.response.connect ((response) => {
                 if (response == "delete") {
                     app_ref.repo_store.remove_repo (repo);
+                    var secure_store = new ResticGui.SecretManager ();
+                    secure_store.clear_password.begin (repo.id, (obj, res) => {
+                        secure_store.clear_password.end (res);
+                    });
                     refresh ();
                     window_ref.show_toast (@"Repository \"$(repo.name)\" removed");
                 }

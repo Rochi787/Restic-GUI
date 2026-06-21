@@ -43,30 +43,41 @@ namespace ResticGui {
          * embedded directly in the crontab line.
          */
         public string build_command (string env_file_path, string log_file_path) {
-            var sb = new StringBuilder ();
-            sb.append_printf ("/usr/bin/env bash -lc '");
-            sb.append_printf ("set -a; source \"%s\"; set +a; ", env_file_path);
-            sb.append ("restic backup");
+            // Build the inner script first, as an ordinary, self-consistent
+            // shell snippet (each dynamic value individually shell_quote()'d).
+            // It must NOT be wrapped in quotes itself here — see below.
+            var inner = new StringBuilder ();
+            inner.append_printf ("set -a; source %s; set +a; ", shell_quote (env_file_path));
+            inner.append ("restic backup");
             foreach (var p in source_paths) {
-                sb.append_printf (" %s", shell_quote (p));
+                inner.append_printf (" %s", shell_quote (p));
             }
             foreach (var e in excludes) {
-                sb.append_printf (" --exclude %s", shell_quote (e));
+                inner.append_printf (" --exclude %s", shell_quote (e));
             }
-            sb.append (" --quiet");
+            inner.append (" --quiet");
 
             if (prune_after_forget) {
-                sb.append (" && restic forget --prune");
-                if (keep_last >= 0) sb.append_printf (" --keep-last %d", keep_last);
-                if (keep_daily >= 0) sb.append_printf (" --keep-daily %d", keep_daily);
-                if (keep_weekly >= 0) sb.append_printf (" --keep-weekly %d", keep_weekly);
-                if (keep_monthly >= 0) sb.append_printf (" --keep-monthly %d", keep_monthly);
-                if (keep_yearly >= 0) sb.append_printf (" --keep-yearly %d", keep_yearly);
+                inner.append (" && restic forget --prune");
+                if (keep_last >= 0) inner.append_printf (" --keep-last %d", keep_last);
+                if (keep_daily >= 0) inner.append_printf (" --keep-daily %d", keep_daily);
+                if (keep_weekly >= 0) inner.append_printf (" --keep-weekly %d", keep_weekly);
+                if (keep_monthly >= 0) inner.append_printf (" --keep-monthly %d", keep_monthly);
+                if (keep_yearly >= 0) inner.append_printf (" --keep-yearly %d", keep_yearly);
             }
 
-            sb.append_printf (" >> %s 2>&1", shell_quote (log_file_path));
-            sb.append ("'");
-            return sb.str;
+            inner.append_printf (" >> %s 2>&1", shell_quote (log_file_path));
+
+            // The cron line itself is parsed by a shell too (cron hands the
+            // whole command field to /bin/sh -c). To pass `inner` through
+            // to `bash -lc` as a single argument, the WHOLE inner string —
+            // including the single quotes already inside it — must be
+            // quoted again as one opaque blob, not re-quoted piecemeal.
+            // shell_quote() escapes any embedded `'` as `'\''`, which is
+            // exactly the standard trick for nesting single-quoted shell
+            // strings safely (handles spaces, quotes, and other shell
+            // metacharacters in paths/excludes correctly).
+            return @"/usr/bin/env bash -lc $(shell_quote (inner.str))";
         }
 
         /**

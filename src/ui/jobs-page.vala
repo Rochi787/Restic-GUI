@@ -366,10 +366,10 @@ namespace ResticGui {
                     FileUtils.set_contents (path, contents);
                     if (!on_windows) FileUtils.chmod (path, 0700);
                     window_ref.show_toast (@"Saved script to $(path) — it contains your repo password, keep it private");
+                } catch (Gtk.DialogError.DISMISSED e) {
+                    // User closed/cancelled the save dialog — nothing to do.
                 } catch (Error e) {
-                    if (!(e is Gtk.DialogError.DISMISSED)) {
-                        window_ref.show_toast (@"Export failed: $(e.message)");
-                    }
+                    window_ref.show_toast (@"Export failed: $(e.message)");
                 }
             });
         }

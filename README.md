@@ -19,7 +19,7 @@ A GTK4 + libadwaita desktop app (written in Vala) for managing [restic](https://
 ## Features
 
 - **Repositories** — add local/network, SFTP, S3, B2, or rest-server backed restic repos. Initialize, check connectivity, edit, delete.
-- **Backup Jobs** — pick source paths, excludes, a cron-style schedule (presets or a custom cron expression), and a retention policy (`restic forget --prune`).
+- **Backup Jobs** — pick source paths, excludes, a cron-style schedule (presets or a custom cron expression), and a retention policy (`restic forget --prune`). Each job can also be run on demand ("Run now") independent of its schedule.
 - **Multiple scheduler backends** — sync jobs to whichever scheduler is actually available on the host, picked at runtime from a dropdown:
   - **cron** — written into a clearly marked, idempotent block in your user crontab; everything else in your crontab is left untouched.
   - **systemd user timers** — a `.service`/`.timer` pair per job under `~/.config/systemd/user/`.
@@ -88,7 +88,7 @@ Install [restic](https://restic.net/) separately (e.g. `winget install restic.re
 - `~/.config/restic-gui/repos.json` — repo definitions (name, backend, location, backend-specific env vars). **Passwords are not stored here** — see [Security model](#security-model).
 - `~/.config/restic-gui/jobs.json` — backup job definitions.
 - `~/.config/restic-gui/scheduler.json` — which scheduler backend (cron / systemd / Windows Task Scheduler) the Jobs page's "Sync" button targets.
-- `~/.local/state/restic-gui/env/<repo-id>.env` — per-repo env file sourced by cron jobs at runtime (`0600`).
+- `~/.local/state/restic-gui/env/<repo-id>.env` — per-repo env file sourced by cron jobs at runtime (`0600`). Every value (repository location, password, and backend-specific env vars) is shell-escaped before being written, so paths/secrets containing spaces or quote characters don't break the file.
 - `~/.local/state/restic-gui/scripts/<job-id>.sh` — standalone backup scripts used by systemd units.
 - `~/.local/state/restic-gui/win-scripts/<job-id>.ps1` — standalone PowerShell scripts used by Windows Task Scheduler.
 - `~/.local/state/restic-gui/logs/<job-id>.log` — backup output logs, for whichever backend is active.
@@ -100,9 +100,15 @@ Install [restic](https://restic.net/) separately (e.g. `winget install restic.re
 
 Repository passwords and backend credentials live in your **system keyring** via `libsecret` (`secret-manager.vala`), looked up by `repo_id`. They are intentionally excluded from `repos.json`.
 
-> **Known gap:** the keyring lookup is wired up for in-app actions (Run now, Restore, Check, Init — see `ResticRunner.build_envp()`), but the scheduler sync paths (`CronManager.sync()`, `SystemdManager.sync()`, `WindowsTaskScheduler.sync()`) currently use the in-memory `Repository.password` field directly instead of fetching it from the keyring first. Since repos loaded from `repos.json` start with an empty password, **a freshly started app that hits "Sync" without re-opening each repo's edit dialog will write an empty `RESTIC_PASSWORD` into cron/systemd/Task Scheduler entries.** This is being tracked as the top-priority fix — see [Known issues](#known-issues--roadmap).
+The keyring lookup is used consistently everywhere a repo's password is needed — in-app actions (Run now, Restore, Check, Init — see `ResticRunner.build_envp()`), the "Export script…" action, and all three scheduler sync paths (`CronManager.sync()`, `SystemdManager.sync()`, `WindowsTaskScheduler.sync()`). None of these trust the in-memory `Repository.password` field, which is only ever populated transiently while a repo's edit dialog is open in the current session and is otherwise empty for repos freshly loaded from `repos.json`.
+
+If a repo has no password stored in the keyring at sync time, that job is **skipped** rather than scheduled with a blank `RESTIC_PASSWORD` — the Jobs page's "Sync" toast lists which job(s) were skipped and why, so you know to reopen Edit Repository and re-save the password.
+
+Deleting a repository from the Repositories page also clears its entry from the system keyring, so stale credentials aren't left behind once a repo is removed from the app.
 
 Exported scripts (`.sh` / `.ps1`) and per-repo env files contain the repository password in plaintext on disk, gated only by file permissions (`0600`/`0700`). Treat them accordingly.
+
+Cron command lines are built by quoting the entire generated script as a single shell-escaped argument to `bash -lc`, so source paths, excludes, and log paths containing spaces or other shell metacharacters are passed through correctly rather than being word-split.
 
 ## Architecture
 
@@ -132,10 +138,9 @@ src/
 
 ## Known issues / Roadmap
 
-- **Scheduler sync doesn't pull passwords from the keyring** (see [Security model](#security-model)) — needs `CronManager`/`SystemdManager`/`WindowsTaskScheduler` `.sync()` to fetch each repo's password via `SecretManager` before writing env files/scripts.
 - **No Secret Service provider on Windows** — `libsecret`'s `password_store`/`password_lookup` calls need a Secret Service backend, which Windows doesn't ship. Until this is bridged (or swapped for Windows Credential Manager on that platform), credential storage on a Windows build is unverified/likely broken even though the rest of the app compiles and runs.
 - `restic ls` (browsing files inside a snapshot before restore) has a runner method (`list_snapshot_files`) but no UI yet — restore always restores the whole snapshot to a chosen folder.
-- The Repos/Jobs page list-refresh rebuilds the whole `Adw.PreferencesGroup` each time rather than diffing rows — fine at homelab scale, not optimized for hundreds of entries.
+- The Repos/Jobs/Snapshots page list-refresh rebuilds the whole `Adw.PreferencesGroup`/list each time rather than diffing rows — fine at homelab scale, not optimized for hundreds of entries.
 - No drag-and-drop reordering of jobs.
 - `EntryRow` password fields don't have the show/hide eye icon wired up (`Gtk.PasswordEntryRow` would be a nicer fit).
 - `RepoEditDialog` doesn't clear stale S3/B2 env vars when switching a repo's backend type away and back.

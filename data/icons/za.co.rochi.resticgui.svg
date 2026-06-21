@@ -1,0 +1,51 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg-grad" x1="4" y1="4" x2="124" y2="124" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#102B43"/>
+      <stop offset="1" stop-color="#0A1A2B"/>
+    </linearGradient>
+    <linearGradient id="line-grad" x1="20" y1="20" x2="112" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7BD8F7"/>
+      <stop offset="1" stop-color="#2E7FE0"/>
+    </linearGradient>
+    <filter id="depth" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000814" flood-opacity="0.45"/>
+    </filter>
+    <clipPath id="shield-clip">
+      <path d="M23,0 C15,7 6,9 0,9 C0,27 4,44 23,58 C42,44 46,27 46,9 C40,9 31,7 23,0 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Squircle background -->
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg-grad)"/>
+
+  <g filter="url(#depth)">
+    <!-- Folder -->
+    <path d="M 34,55
+             L 34,42
+             Q 34,38 38,38
+             L 52,38
+             L 64,49
+             L 92,49
+             Q 98,49 98,55
+             L 98,90
+             Q 98,96 92,96
+             L 40,96
+             Q 34,96 34,90
+             Z"
+          fill="none" stroke="url(#line-grad)" stroke-width="5"
+          stroke-linejoin="round" stroke-linecap="round"/>
+
+    <!-- Up arrow (backup) -->
+    <path d="M 54,56 L 66,70 L 58,70 L 58,86 L 50,86 L 50,70 L 42,70 Z"
+          fill="url(#line-grad)"/>
+
+    <!-- Shield (security) -->
+    <g transform="translate(64,40)">
+      <rect x="23" y="0" width="23" height="58" fill="#16405F" opacity="0.6" clip-path="url(#shield-clip)"/>
+      <path d="M23,0 C15,7 6,9 0,9 C0,27 4,44 23,58 C42,44 46,27 46,9 C40,9 31,7 23,0 Z"
+            fill="none" stroke="url(#line-grad)" stroke-width="5" stroke-linejoin="round"/>
+      <line x1="23" y1="3" x2="23" y2="55" stroke="url(#line-grad)" stroke-width="1.5" opacity="0.55"/>
+    </g>
+  </g>
+</svg>

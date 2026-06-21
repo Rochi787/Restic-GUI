@@ -1,0 +1,16 @@
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <!-- Folder -->
+  <path d="M2.5 6.2 L2.5 4.6 Q2.5 4 3.1 4 L5.4 4 L6.8 5.4 L11.2 5.4 Q12 5.4 12 6.2
+           L12 10.6 Q12 11.4 11.2 11.4 L3.3 11.4 Q2.5 11.4 2.5 10.6 Z"
+        fill="none" stroke="currentColor" stroke-width="0.85" stroke-linejoin="round"/>
+
+  <!-- Up arrow -->
+  <path d="M6.4 6.4 L7.6 7.7 L7 7.7 L7 9.8 L5.8 9.8 L5.8 7.7 L5.2 7.7 Z"
+        fill="currentColor"/>
+
+  <!-- Shield badge -->
+  <g transform="translate(8.2,6.4) scale(0.13)">
+    <path d="M23,0 C15,7 6,9 0,9 C0,27 4,44 23,58 C42,44 46,27 46,9 C40,9 31,7 23,0 Z"
+          fill="none" stroke="currentColor" stroke-width="7"/>
+  </g>
+</svg>

@@ -43,9 +43,7 @@ A GTK4 + libadwaita desktop app (written in Vala) for managing [restic](https://
 ### Arch
 
 ```bash
-sudo pacman -S vala gtk4 libadwaita meson ninja json-glib libsecret restic
-meson setup build
-ninja -C build
+sudo makepkg -si
 ./build/restic-gui
 ```
 
@@ -55,6 +53,7 @@ ninja -C build
 sudo apt install valac libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsecret-1-dev meson ninja-build restic
 meson setup build
 ninja -C build
+sudo meson install -C build
 ./build/restic-gui
 ```
 

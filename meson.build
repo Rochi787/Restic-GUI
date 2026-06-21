@@ -42,3 +42,21 @@ executable('restic-gui',
   dependencies: dependencies,
   install: true,
 )
+
+install_data(
+  'data/icons/za.co.rochi.resticgui.svg',
+  install_dir: join_paths(get_option('datadir'), 'icons', 'hicolor', 'scalable', 'apps')
+)
+install_data(
+  'data/icons/za.co.rochi.resticgui-symbolic.svg',
+  install_dir: join_paths(get_option('datadir'), 'icons', 'hicolor', 'symbolic', 'apps')
+)
+install_data(
+  'data/za.co.rochi.resticgui.desktop',
+  install_dir: join_paths(get_option('datadir'), 'applications')
+)
+
+gnome.post_install(
+  gtk_update_icon_cache: true,
+)
+

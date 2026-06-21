@@ -145,6 +145,8 @@ src/
 - `EntryRow` password fields don't have the show/hide eye icon wired up (`Gtk.PasswordEntryRow` would be a nicer fit).
 - `RepoEditDialog` doesn't clear stale S3/B2 env vars when switching a repo's backend type away and back.
 - Cron → systemd / Windows Task Scheduler conversion is best-effort and rejects anything beyond the patterns this app's own presets (and similarly simple custom expressions) produce — see the comments in `systemd-manager.vala` / `windows-task-scheduler.vala` for exactly what's supported.
+- Tags to backups
+- Filters by tags
 
 ## Contributing
 

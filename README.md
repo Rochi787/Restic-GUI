@@ -30,12 +30,12 @@ A GTK4 + libadwaita desktop app (written in Vala) for managing [restic](https://
 
 ## Screenshots
 
-![Screenshot-1](./images/Screenshot-1.png)
-![Screenshot-2](./images/Screenshot-2.png)
-![Screenshot-3](./images/Screenshot-3.png)
-![Screenshot-4](./images/Screenshot-4.png)
-![Screenshot-5](./images/Screenshot-5.png)
-![Screenshot-6](./images/Screenshot-6.png)
+![Screenshot-1](./images/Screenshot-1.png)  
+![Screenshot-2](./images/Screenshot-2.png)  
+![Screenshot-3](./images/Screenshot-3.png)  
+![Screenshot-4](./images/Screenshot-4.png)  
+![Screenshot-5](./images/Screenshot-5.png)  
+![Screenshot-6](./images/Screenshot-6.png)  
 ![Screenshot-7](./images/Screenshot-7.png)
 
 ## Install
@@ -65,6 +65,24 @@ To install system-wide (adds it to your app launcher):
 ```bash
 sudo meson install -C build
 ```
+
+### Windows
+
+There's no installer or prebuilt binary yet. The app can be built via [MSYS2](https://www.msys2.org/), which ships the same GTK4/libadwaita stack GNOME uses for its own Windows builds:
+
+```bash
+# In an MSYS2 "MinGW64" shell:
+pacman -S mingw-w64-x86_64-vala mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita \
+          mingw-w64-x86_64-json-glib mingw-w64-x86_64-libsecret \
+          mingw-w64-x86_64-meson mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf
+meson setup build
+ninja -C build
+./build/restic-gui.exe
+```
+
+Install [restic](https://restic.net/) separately (e.g. `winget install restic.restic`) and make sure it's on `PATH`.
+
+> **Caveat:** libadwaita on Windows is supported by upstream but is less battle-tested than on Linux/macOS, and `libsecret` depends on a "Secret Service" provider that Windows doesn't ship natively — credential storage may not work out of the box (see [Known issues](#known-issues--roadmap)). The `WindowsTaskScheduler` backend (PowerShell script + `schtasks.exe`) itself only needs stock Windows, no extra install.
 
 ## Where things are stored
 
@@ -116,9 +134,18 @@ src/
 ## Known issues / Roadmap
 
 - **Scheduler sync doesn't pull passwords from the keyring** (see [Security model](#security-model)) — needs `CronManager`/`SystemdManager`/`WindowsTaskScheduler` `.sync()` to fetch each repo's password via `SecretManager` before writing env files/scripts.
+- **No Secret Service provider on Windows** — `libsecret`'s `password_store`/`password_lookup` calls need a Secret Service backend, which Windows doesn't ship. Until this is bridged (or swapped for Windows Credential Manager on that platform), credential storage on a Windows build is unverified/likely broken even though the rest of the app compiles and runs.
 - `restic ls` (browsing files inside a snapshot before restore) has a runner method (`list_snapshot_files`) but no UI yet — restore always restores the whole snapshot to a chosen folder.
 - The Repos/Jobs page list-refresh rebuilds the whole `Adw.PreferencesGroup` each time rather than diffing rows — fine at homelab scale, not optimized for hundreds of entries.
 - No drag-and-drop reordering of jobs.
 - `EntryRow` password fields don't have the show/hide eye icon wired up (`Gtk.PasswordEntryRow` would be a nicer fit).
 - `RepoEditDialog` doesn't clear stale S3/B2 env vars when switching a repo's backend type away and back.
 - Cron → systemd / Windows Task Scheduler conversion is best-effort and rejects anything beyond the patterns this app's own presets (and similarly simple custom expressions) produce — see the comments in `systemd-manager.vala` / `windows-task-scheduler.vala` for exactly what's supported.
+
+## Contributing
+
+Issues and PRs are welcome at [github.com/Rochi787/Restic-GUI](https://github.com/Rochi787/Restic-GUI).
+
+## License
+
+MIT — see LICENSE for the full text.

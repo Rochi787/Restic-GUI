@@ -12,6 +12,7 @@ dependencies = [
   dependency('gtk4'),
   dependency('libadwaita-1'),
   dependency('json-glib-1.0'),
+  dependency('libsecret-1') 
 ]
 
 sources = files(
@@ -27,6 +28,7 @@ sources = files(
   'src/services/systemd-manager.vala',
   'src/services/windows-task-scheduler.vala',
   'src/services/scheduler-prefs.vala',
+  'src/services/secret-manager.vala',
   'src/ui/window.vala',
   'src/ui/repos-page.vala',
   'src/ui/repo-edit-dialog.vala',

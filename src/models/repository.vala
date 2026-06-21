@@ -75,7 +75,8 @@ namespace ResticGui {
             obj.set_string_member ("name", name);
             obj.set_string_member ("backend", backend.to_string_id ());
             obj.set_string_member ("location", location);
-            obj.set_string_member ("password", password);
+            // password is intentionally NOT serialized here — it lives in
+            // the system keyring (see SecretManager), never in repos.json.
 
             var env_obj = new Json.Object ();
             env_vars.foreach ((k, v) => {
@@ -94,7 +95,9 @@ namespace ResticGui {
             repo.name = obj.get_string_member ("name");
             repo.backend = BackendType.from_string_id (obj.get_string_member ("backend"));
             repo.location = obj.get_string_member ("location");
-            repo.password = obj.get_string_member ("password");
+            // password is no longer stored in repos.json — callers must
+            // fetch it from the keyring via SecretManager.lookup_password().
+            repo.password = "";
 
             if (obj.has_member ("env")) {
                 var env_obj = obj.get_object_member ("env");

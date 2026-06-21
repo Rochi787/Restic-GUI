@@ -92,6 +92,20 @@ namespace ResticGui {
             password_row.text = repo.password;
             basics_group.add (password_row);
 
+            if (!is_new) {
+                // repo.password is blank after a fresh load from
+                // repos.json (it's no longer stored there) — fetch the
+                // real value from the keyring to populate the field.
+                var secure_store = new ResticGui.SecretManager ();
+                secure_store.lookup_password.begin (repo.id, (obj, res) => {
+                    string? found = secure_store.lookup_password.end (res);
+                    if (found != null) {
+                        repo.password = found;
+                        password_row.text = found;
+                    }
+                });
+            }
+
             box.append (basics_group);
 
             // Hint row explaining location format per backend.
@@ -190,7 +204,11 @@ namespace ResticGui {
             repo.name = name_row.text;
             repo.backend = index_to_backend (backend_row.selected);
             repo.location = location_row.text;
-            repo.password = password_row.text;
+
+            string entered_password = password_row.text;
+            // Kept in memory for this session (e.g. "Export script…",
+            // manual "Run now") — never written to repos.json.
+            repo.password = entered_password;
 
             if (repo.backend == BackendType.S3) {
                 repo.env_vars.set ("AWS_ACCESS_KEY_ID", aws_key_row.text);
@@ -200,8 +218,15 @@ namespace ResticGui {
                 repo.env_vars.set ("B2_ACCOUNT_KEY", b2_key_row.text);
             }
 
-            saved (repo);
-            close ();
+            var secure_store = new ResticGui.SecretManager ();
+            secure_store.store_password.begin (repo.id, entered_password, (obj, res) => {
+                bool ok = secure_store.store_password.end (res);
+                if (!ok) {
+                    warning ("Failed to store password in system keyring for repo \"%s\"", repo.name);
+                }
+                saved (repo);
+                close ();
+            });
         }
     }
 }

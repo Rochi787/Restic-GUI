@@ -13,14 +13,23 @@ namespace ResticGui {
      */
     public class ResticRunner : Object {
 
+        private SecretManager secret_manager = new SecretManager ();
+
         public static bool is_installed () {
             return Environment.find_program_in_path ("restic") != null;
         }
 
-        private string[] build_envp (Repository repo) {
+        private async string[] build_envp (Repository repo) throws Error {
             string[] envp = Environ.get ();
             envp = Environ.set_variable (envp, "RESTIC_REPOSITORY", repo.location, true);
-            envp = Environ.set_variable (envp, "RESTIC_PASSWORD", repo.password, true);
+
+            string? password = yield secret_manager.lookup_password (repo.id);
+            if (password == null) {
+                throw new ResticError.EXEC_FAILED (
+                    @"No password found in the system keyring for repository \"$(repo.name)\" — open Edit Repository and re-enter/save it.");
+            }
+            envp = Environ.set_variable (envp, "RESTIC_PASSWORD", password, true);
+
             repo.env_vars.foreach ((k, v) => {
                 envp = Environ.set_variable (envp, k, v, true);
             });
@@ -37,7 +46,7 @@ namespace ResticGui {
             for (int i = 0; i < args.length; i++) argv[i + 1] = args[i];
 
             var launcher = new SubprocessLauncher (SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE);
-            launcher.set_environ (build_envp (repo));
+            launcher.set_environ (yield build_envp (repo));
 
             Subprocess proc;
             try {

@@ -92,7 +92,19 @@ namespace ResticGui {
                 labels.add (SchedulerBackend.CRON.label ());
             }
 
-            scheduler_dropdown = new Gtk.DropDown.from_strings (labels.data);
+            // Copy into a plain, length-tracked string[] before handing it
+            // to from_strings(). Gtk.DropDown.from_strings() expects a
+            // null-terminated array; passing GenericArray<string>.data
+            // directly doesn't reliably get null-terminated by Vala (a
+            // property read doesn't carry length info the way a real
+            // array variable does), which is what was showing up as
+            // garbage text in the dropdown entries.
+            string[] label_arr = new string[labels.length];
+            for (int i = 0; i < labels.length; i++) {
+                label_arr[i] = labels[i];
+            }
+
+            scheduler_dropdown = new Gtk.DropDown.from_strings (label_arr);
             scheduler_dropdown.tooltip_text = "Scheduler backend used by \"Sync\"";
 
             suppress_dropdown_signal = true;

@@ -149,8 +149,9 @@ namespace ResticGui {
             var repo = app_ref.repo_store.find_by_id (job.repo_id);
             string repo_name = repo != null ? repo.name : "(missing repo)";
 
+            string tag_suffix = job.tags.length > 0 ? @" — tags: $(string.joinv (", ", job.tags.data))" : "";
             row.title = job.name;
-            row.subtitle = @"$(repo_name) — schedule: $(job.cron_schedule) — $(job.source_paths.length) path(s)";
+            row.subtitle = @"$(repo_name) — schedule: $(job.cron_schedule) — $(job.source_paths.length) path(s)$(tag_suffix)";
 
             var enabled_switch = new Gtk.Switch ();
             enabled_switch.active = job.enabled;
@@ -403,7 +404,7 @@ namespace ResticGui {
 
         private async void run_now_async (Repository repo, BackupJob job) {
             try {
-                yield app_ref.runner.backup_now (repo, job.source_paths, job.excludes);
+                yield app_ref.runner.backup_now (repo, job.source_paths, job.excludes, job.tags);
                 window_ref.show_toast (@"Backup \"$(job.name)\" completed ✓");
                 if (job.prune_after_forget) {
                     yield app_ref.runner.forget_prune (repo, job);

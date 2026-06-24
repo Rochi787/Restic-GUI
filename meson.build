@@ -1,5 +1,5 @@
 project('restic-gui', ['vala', 'c'],
-  version: '0.1.1',
+  version: '0.1.0',
   meson_version: '>= 0.59.0'
 )
 
@@ -21,6 +21,7 @@ sources = files(
   'src/models/repository.vala',
   'src/models/backup-job.vala',
   'src/models/snapshot.vala',
+  'src/models/snapshot-entry.vala',
   'src/services/restic-runner.vala',
   'src/services/repo-store.vala',
   'src/services/job-store.vala',
@@ -35,6 +36,7 @@ sources = files(
   'src/ui/jobs-page.vala',
   'src/ui/job-edit-dialog.vala',
   'src/ui/snapshots-page.vala',
+  'src/ui/snapshot-browser-dialog.vala',
 )
 
 executable('restic-gui',

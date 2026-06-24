@@ -6,10 +6,17 @@ namespace ResticGui {
         public string hostname { get; set; }
         public string time { get; set; }
         public GenericArray<string> paths { get; set; }
+
+        // Comma-joined tags, kept for the existing row subtitle display.
         public string tags { get; set; default = ""; }
+
+        // Same tags as a real array, used for exact-match filtering
+        // (Snapshots page: filter by tag) without re-parsing `tags`.
+        public GenericArray<string> tag_list { get; set; }
 
         public Snapshot () {
             paths = new GenericArray<string> ();
+            tag_list = new GenericArray<string> ();
         }
 
         public static Snapshot from_json (Json.Object obj) {
@@ -28,14 +35,13 @@ namespace ResticGui {
 
             if (obj.has_member ("tags")) {
                 var arr = obj.get_array_member ("tags");
-                var tag_list = new GenericArray<string> ();
                 arr.foreach_element ((a, i, val) => {
-                    tag_list.add (val.get_string ());
+                    s.tag_list.add (val.get_string ());
                 });
                 var sb = new StringBuilder ();
-                for (int i = 0; i < tag_list.length; i++) {
+                for (int i = 0; i < s.tag_list.length; i++) {
                     if (i > 0) sb.append (", ");
-                    sb.append (tag_list[i]);
+                    sb.append (s.tag_list[i]);
                 }
                 s.tags = sb.str;
             }

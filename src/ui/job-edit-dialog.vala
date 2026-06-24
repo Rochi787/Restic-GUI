@@ -11,6 +11,7 @@ namespace ResticGui {
         private Adw.ComboRow repo_row;
         private Gtk.TextView paths_view;
         private Gtk.TextView excludes_view;
+        private Adw.EntryRow tags_row;
         private Adw.ComboRow schedule_preset_row;
         private Adw.EntryRow custom_cron_row;
         private Adw.SwitchRow prune_row;
@@ -92,6 +93,12 @@ namespace ResticGui {
             repo_row.model = new Gtk.StringList (name_arr);
             repo_row.selected = selected_index;
             basics.add (repo_row);
+
+            tags_row = new Adw.EntryRow ();
+            tags_row.title = "Tags (comma separated)";
+            tags_row.text = string.joinv (", ", job.tags.data);
+            basics.add (tags_row);
+
             box.append (basics);
 
             // --- Paths ---
@@ -212,6 +219,12 @@ namespace ResticGui {
             foreach (var line in excludes_view.buffer.text.split ("\n")) {
                 var trimmed = line.strip ();
                 if (trimmed != "") job.excludes.add (trimmed);
+            }
+
+            job.tags = new GenericArray<string> ();
+            foreach (var part in tags_row.text.split (",")) {
+                var trimmed = part.strip ();
+                if (trimmed != "") job.tags.add (trimmed);
             }
 
             job.cron_schedule = custom_cron_row.text.strip ();

@@ -2,8 +2,9 @@ namespace ResticGui {
 
     /**
      * A scheduled backup job: which paths to back up, into which repo,
-     * on what cron schedule, and what retention/prune policy to apply
-     * afterwards (restic forget --prune).
+     * on what cron schedule, what tags to attach to each snapshot, and
+     * what retention/prune policy to apply afterwards
+     * (restic forget --prune).
      */
     public class BackupJob : Object {
         public string id { get; set; }
@@ -15,6 +16,12 @@ namespace ResticGui {
 
         // Glob-style excludes, passed as --exclude.
         public GenericArray<string> excludes { get; set; }
+
+        // Tags attached to every snapshot this job creates (restic
+        // `backup --tag <tag>`, one flag per tag). Lets snapshots be
+        // filtered later by machine/purpose/etc. in the Snapshots page,
+        // independent of which repo or job created them.
+        public GenericArray<string> tags { get; set; }
 
         // Standard cron schedule string, e.g. "0 2 * * *". Also used as
         // the source expression for systemd OnCalendar= and Windows
@@ -34,6 +41,7 @@ namespace ResticGui {
         public BackupJob () {
             source_paths = new GenericArray<string> ();
             excludes = new GenericArray<string> ();
+            tags = new GenericArray<string> ();
         }
 
         /**
@@ -54,6 +62,9 @@ namespace ResticGui {
             }
             foreach (var e in excludes) {
                 inner.append_printf (" --exclude %s", shell_quote (e));
+            }
+            foreach (var t in tags) {
+                inner.append_printf (" --tag %s", shell_quote (t));
             }
             inner.append (" --quiet");
 
@@ -120,6 +131,9 @@ namespace ResticGui {
             foreach (var e in excludes) {
                 sb.append_printf (" --exclude %s", shell_quote (e));
             }
+            foreach (var t in tags) {
+                sb.append_printf (" --tag %s", shell_quote (t));
+            }
             sb.append (" --quiet\n");
 
             if (prune_after_forget) {
@@ -169,6 +183,9 @@ namespace ResticGui {
             }
             foreach (var e in excludes) {
                 sb.append_printf (", '--exclude', %s", ps_quote (e));
+            }
+            foreach (var t in tags) {
+                sb.append_printf (", '--tag', %s", ps_quote (t));
             }
             sb.append (", '--quiet')\n");
             if (log_path != null) {
@@ -229,6 +246,10 @@ namespace ResticGui {
             foreach (var e in excludes) ex_arr.add_string_element (e);
             obj.set_array_member ("excludes", ex_arr);
 
+            var tags_arr = new Json.Array ();
+            foreach (var t in tags) tags_arr.add_string_element (t);
+            obj.set_array_member ("tags", tags_arr);
+
             var node = new Json.Node (Json.NodeType.OBJECT);
             node.set_object (obj);
             return node;
@@ -258,6 +279,14 @@ namespace ResticGui {
                 var arr = obj.get_array_member ("excludes");
                 arr.foreach_element ((a, i, val) => {
                     job.excludes.add (val.get_string ());
+                });
+            }
+            // Older jobs.json files predate tagging — default to no tags
+            // rather than failing to load the job.
+            if (obj.has_member ("tags")) {
+                var arr = obj.get_array_member ("tags");
+                arr.foreach_element ((a, i, val) => {
+                    job.tags.add (val.get_string ());
                 });
             }
             return job;

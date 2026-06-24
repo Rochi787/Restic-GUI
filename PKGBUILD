@@ -1,6 +1,6 @@
 # Maintainer: Rochi <rochi787@gmail.com.com>
 pkgname=restic-gui
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="GTK4 + libadwaita desktop app for managing restic repositories, scheduled backups, and snapshots"
 arch=('x86_64' 'aarch64')

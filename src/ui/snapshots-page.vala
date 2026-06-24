@@ -10,6 +10,14 @@ namespace ResticGui {
         private Gtk.Box main_box;
         private Adw.ToolbarView toolbar_view;
 
+        // --- Filtering ---
+        private Adw.ComboRow host_filter_row;
+        private Adw.ComboRow tag_filter_row;
+        private Adw.EntryRow date_from_row;
+        private Adw.EntryRow date_to_row;
+        private GenericArray<Snapshot> all_snapshots = new GenericArray<Snapshot> ();
+        private bool suppress_filter_signal = false;
+
         public SnapshotsPage (Application app, MainWindow window) {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
             app_ref = app;
@@ -52,6 +60,8 @@ namespace ResticGui {
 
             repo_picker.notify["selected"].connect (() => load_snapshots ());
 
+            build_filter_ui ();
+
             snapshot_list = new Gtk.ListBox ();
             snapshot_list.css_classes = { "boxed-list" };
             main_box.append (snapshot_list);
@@ -59,6 +69,61 @@ namespace ResticGui {
             clamp.child = main_box;
             scroller.child = clamp;
             toolbar_view.content = scroller;
+        }
+
+        /**
+         * Filter controls — scoped to whichever repository is currently
+         * selected above, same as the snapshot list itself. Host and tag
+         * options are (re)populated from whatever snapshots were just
+         * loaded for that repo; date range is free-text (YYYY-MM-DD)
+         * compared against each snapshot's date.
+         */
+        private void build_filter_ui () {
+            var filters_group = new Adw.PreferencesGroup ();
+            filters_group.title = "Filters";
+
+            host_filter_row = new Adw.ComboRow ();
+            host_filter_row.title = "Machine";
+            host_filter_row.model = new Gtk.StringList ({ "All hosts" });
+            host_filter_row.notify["selected"].connect (() => apply_filters ());
+            filters_group.add (host_filter_row);
+
+            tag_filter_row = new Adw.ComboRow ();
+            tag_filter_row.title = "Tag";
+            tag_filter_row.model = new Gtk.StringList ({ "All tags" });
+            tag_filter_row.notify["selected"].connect (() => apply_filters ());
+            filters_group.add (tag_filter_row);
+
+            date_from_row = new Adw.EntryRow ();
+            date_from_row.title = "From (YYYY-MM-DD)";
+            date_from_row.changed.connect (() => apply_filters ());
+            filters_group.add (date_from_row);
+
+            date_to_row = new Adw.EntryRow ();
+            date_to_row.title = "To (YYYY-MM-DD)";
+            date_to_row.changed.connect (() => apply_filters ());
+            filters_group.add (date_to_row);
+
+            var clear_row = new Adw.ActionRow ();
+            clear_row.title = "Clear filters";
+            var clear_btn = new Gtk.Button.from_icon_name ("edit-clear-symbolic");
+            clear_btn.valign = Gtk.Align.CENTER;
+            clear_btn.clicked.connect (() => on_clear_filters ());
+            clear_row.add_suffix (clear_btn);
+            clear_row.activatable_widget = clear_btn;
+            filters_group.add (clear_row);
+
+            main_box.append (filters_group);
+        }
+
+        private void on_clear_filters () {
+            suppress_filter_signal = true;
+            host_filter_row.selected = 0;
+            tag_filter_row.selected = 0;
+            date_from_row.text = "";
+            date_to_row.text = "";
+            suppress_filter_signal = false;
+            apply_filters ();
         }
 
         public void refresh () {
@@ -111,19 +176,11 @@ namespace ResticGui {
         private async void load_snapshots_async (Repository repo) {
             try {
                 var snapshots = yield app_ref.runner.list_snapshots (repo);
-                clear_list ();
-
-                if (snapshots.length == 0) {
-                    var empty_row = new Adw.ActionRow ();
-                    empty_row.title = "No snapshots found";
-                    snapshot_list.append (empty_row);
-                    return;
-                }
-
-                foreach (var snap in snapshots) {
-                    snapshot_list.append (make_snapshot_row (repo, snap));
-                }
+                all_snapshots = snapshots;
+                populate_filter_options ();
+                apply_filters ();
             } catch (Error e) {
+                all_snapshots = new GenericArray<Snapshot> ();
                 clear_list ();
                 var error_row = new Adw.ActionRow ();
                 error_row.title = "Failed to load snapshots";
@@ -132,11 +189,107 @@ namespace ResticGui {
             }
         }
 
+        /** Rebuilds the Machine/Tag dropdown options from whatever snapshots are currently loaded for this repo. */
+        private void populate_filter_options () {
+            var hosts = new GenericArray<string> ();
+            hosts.add ("All hosts");
+            var tags = new GenericArray<string> ();
+            tags.add ("All tags");
+
+            foreach (var snap in all_snapshots) {
+                if (snap.hostname != "" && !contains_str (hosts, snap.hostname)) hosts.add (snap.hostname);
+                foreach (var t in snap.tag_list) {
+                    if (!contains_str (tags, t)) tags.add (t);
+                }
+            }
+
+            // Copy into plain, length-tracked string[] before handing to
+            // Gtk.StringList — a GenericArray<string>.data property read
+            // isn't reliably null-terminated, which shows up as garbage
+            // entries in the dropdown otherwise.
+            string[] host_arr = new string[hosts.length];
+            for (int i = 0; i < hosts.length; i++) host_arr[i] = hosts[i];
+            string[] tag_arr = new string[tags.length];
+            for (int i = 0; i < tags.length; i++) tag_arr[i] = tags[i];
+
+            suppress_filter_signal = true;
+            host_filter_row.model = new Gtk.StringList (host_arr);
+            host_filter_row.selected = 0;
+            tag_filter_row.model = new Gtk.StringList (tag_arr);
+            tag_filter_row.selected = 0;
+            suppress_filter_signal = false;
+        }
+
+        private bool contains_str (GenericArray<string> arr, string val) {
+            foreach (var v in arr) {
+                if (v == val) return true;
+            }
+            return false;
+        }
+
+        private string selected_string (Adw.ComboRow row) {
+            var model = row.model as Gtk.StringList;
+            if (model == null) return "";
+            uint idx = row.selected;
+            if (idx == Gtk.INVALID_LIST_POSITION || idx >= model.get_n_items ()) return "";
+            return model.get_string (idx);
+        }
+
+        private bool snapshot_has_tag (Snapshot snap, string tag) {
+            foreach (var t in snap.tag_list) {
+                if (t == tag) return true;
+            }
+            return false;
+        }
+
+        /** Re-renders the snapshot list from all_snapshots according to the current filter controls. */
+        private void apply_filters () {
+            if (suppress_filter_signal) return;
+
+            var repo = current_repo ();
+            clear_list ();
+            if (repo == null) return;
+
+            string host_filter = selected_string (host_filter_row);
+            string tag_filter = selected_string (tag_filter_row);
+            string date_from = date_from_row.text.strip ();
+            string date_to = date_to_row.text.strip ();
+
+            var matches = new GenericArray<Snapshot> ();
+            foreach (var snap in all_snapshots) {
+                if (host_filter != "" && host_filter != "All hosts" && snap.hostname != host_filter) continue;
+                if (tag_filter != "" && tag_filter != "All tags" && !snapshot_has_tag (snap, tag_filter)) continue;
+
+                string snap_date = snap.time.length >= 10 ? snap.time.substring (0, 10) : snap.time;
+                if (date_from != "" && snap_date.collate (date_from) < 0) continue;
+                if (date_to != "" && snap_date.collate (date_to) > 0) continue;
+
+                matches.add (snap);
+            }
+
+            if (matches.length == 0) {
+                var empty_row = new Adw.ActionRow ();
+                empty_row.title = all_snapshots.length == 0 ? "No snapshots found" : "No snapshots match the current filters";
+                snapshot_list.append (empty_row);
+                return;
+            }
+
+            foreach (var snap in matches) {
+                snapshot_list.append (make_snapshot_row (repo, snap));
+            }
+        }
+
         private Adw.ActionRow make_snapshot_row (Repository repo, Snapshot snap) {
             var row = new Adw.ActionRow ();
             row.title = @"$(snap.short_id) — $(snap.time)";
             string paths_joined = string.joinv (", ", snap.paths.data);
-            row.subtitle = @"$(snap.hostname) — $(paths_joined)";
+            string tag_suffix = snap.tags != "" ? @" — tags: $(snap.tags)" : "";
+            row.subtitle = @"$(snap.hostname) — $(paths_joined)$(tag_suffix)";
+
+            var browse_btn = new Gtk.Button.from_icon_name ("folder-open-symbolic");
+            browse_btn.tooltip_text = "Browse files…";
+            browse_btn.valign = Gtk.Align.CENTER;
+            browse_btn.clicked.connect (() => on_browse_clicked (repo, snap));
 
             var restore_btn = new Gtk.Button.from_icon_name ("document-revert-symbolic");
             restore_btn.tooltip_text = "Restore…";
@@ -149,9 +302,15 @@ namespace ResticGui {
             prune_btn.css_classes = { "destructive-action" };
             prune_btn.clicked.connect (() => on_forget_clicked (repo, snap));
 
+            row.add_suffix (browse_btn);
             row.add_suffix (restore_btn);
             row.add_suffix (prune_btn);
             return row;
+        }
+
+        private void on_browse_clicked (Repository repo, Snapshot snap) {
+            var dialog = new SnapshotBrowserDialog (app_ref, window_ref, repo, snap);
+            dialog.present (window_ref);
         }
 
         private void on_restore_clicked (Repository repo, Snapshot snap) {

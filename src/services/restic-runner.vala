@@ -36,7 +36,13 @@ namespace ResticGui {
             return envp;
         }
 
-        private async string run_raw (Repository repo, string[] args) throws Error {
+        /**
+         * Core subprocess runner. Returns stdout as raw Bytes rather than
+         * a string — required for anything that can produce binary
+         * output (e.g. `restic dump --archive zip`), since round-tripping
+         * binary data through a UTF-8 string would corrupt it.
+         */
+        private async Bytes run_raw_bytes (Repository repo, string[] args) throws Error {
             if (!is_installed ()) {
                 throw new ResticError.NOT_FOUND ("restic binary not found in PATH");
             }
@@ -63,7 +69,13 @@ namespace ResticGui {
                 throw new ResticError.EXEC_FAILED (err_text.strip ());
             }
 
-            return (string) stdout_buf.get_data ();
+            return stdout_buf;
+        }
+
+        /** Text-output convenience wrapper around run_raw_bytes(), for commands whose stdout is always UTF-8 (JSON, plain text). */
+        private async string run_raw (Repository repo, string[] args) throws Error {
+            var bytes = yield run_raw_bytes (repo, args);
+            return (string) bytes.get_data ();
         }
 
         /** Initialize a brand-new repository. */
@@ -99,7 +111,7 @@ namespace ResticGui {
         }
 
         /** Run a manual backup of the given paths right now. */
-        public async string backup_now (Repository repo, GenericArray<string> paths, GenericArray<string>? excludes = null) throws Error {
+        public async string backup_now (Repository repo, GenericArray<string> paths, GenericArray<string>? excludes = null, GenericArray<string>? tags = null) throws Error {
             var args = new GenericArray<string> ();
             args.add ("backup");
             foreach (var p in paths) args.add (p);
@@ -109,12 +121,50 @@ namespace ResticGui {
                     args.add (e);
                 }
             }
+            if (tags != null) {
+                foreach (var t in tags) {
+                    args.add ("--tag");
+                    args.add (t);
+                }
+            }
             return yield run_raw (repo, args.data);
         }
 
         /** Restore a snapshot to a target directory. */
         public async string restore_snapshot (Repository repo, string snapshot_id, string target_dir) throws Error {
             return yield run_raw (repo, { "restore", snapshot_id, "--target", target_dir });
+        }
+
+        /**
+         * Restores a single file or folder from within a snapshot into
+         * target_dir, preserving its full snapshot path under target_dir
+         * (restic's normal --include behavior), and returns the
+         * resulting local path so callers (e.g. "Open with…") know
+         * exactly where the restored item landed.
+         */
+        public async string restore_path (Repository repo, string snapshot_id, string path, string target_dir) throws Error {
+            yield run_raw (repo, { "restore", snapshot_id, "--target", target_dir, "--include", path });
+            string relative = path.has_prefix ("/") ? path.substring (1) : path;
+            return Path.build_filename (target_dir, relative);
+        }
+
+        /**
+         * Writes a single file, or an entire folder packed as a zip
+         * archive, from a snapshot straight to disk via `restic dump`.
+         * Goes through the raw-bytes path since zip/binary output must
+         * not be round-tripped through a UTF-8 string.
+         */
+        public async void dump_path_to_file (Repository repo, string snapshot_id, string path, string output_path, bool as_zip) throws Error {
+            string[] args = as_zip
+                ? new string[] { "dump", snapshot_id, path, "--archive", "zip" }
+                : new string[] { "dump", snapshot_id, path };
+            var bytes = yield run_raw_bytes (repo, args);
+
+            try {
+                FileUtils.set_contents (output_path, (string) bytes.get_data (), (ssize_t) bytes.get_size ());
+            } catch (Error e) {
+                throw new ResticError.EXEC_FAILED (@"Failed to write dumped output to \"$(output_path)\": $(e.message)");
+            }
         }
 
         /** Forget + prune according to retention flags. */
@@ -139,9 +189,27 @@ namespace ResticGui {
             return yield run_raw (repo, args.data);
         }
 
-        /** List files within a snapshot (for browsing before restore). */
+        /** List files within a snapshot as raw `restic ls` text output (for callers that just want to display/log it). */
         public async string list_snapshot_files (Repository repo, string snapshot_id, string path = "/") throws Error {
             return yield run_raw (repo, { "ls", snapshot_id, path });
+        }
+
+        /**
+         * Lists every file/dir entry in a snapshot as a flat array of
+         * SnapshotEntry, for building a browsable tree client-side (see
+         * SnapshotBrowserDialog). One `restic ls --json` call covers the
+         * whole snapshot; the tree structure itself is derived locally
+         * from each entry's path rather than issuing one `ls` call per
+         * directory.
+         */
+        public async GenericArray<SnapshotEntry> list_snapshot_tree (Repository repo, string snapshot_id) throws Error {
+            var raw = yield run_raw (repo, { "ls", snapshot_id, "--json" });
+            var result = new GenericArray<SnapshotEntry> ();
+            foreach (var line in raw.split ("\n")) {
+                var entry = SnapshotEntry.from_json_line (line);
+                if (entry != null) result.add (entry);
+            }
+            return result;
         }
     }
 }
